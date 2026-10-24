@@ -47,22 +47,29 @@ static void rotateLogs(const QString &baseName)
     }
 }
 
-static void initLog()
+static bool initLog()
 {
     if (g_logFile.isOpen())
-        return;
+        return true;
 
-    QDir().mkpath("logs");
+    if (!QDir().mkpath("logs")) {
+        qWarning() << "Cannot create log directory:" << QDir("logs").absolutePath();
+        return false;
+    }
 
     g_logFile.setFileName("logs/system_log.txt");
-    g_logFile.open(QIODevice::Append | QIODevice::Text);
+    if (!g_logFile.open(QIODevice::Append | QIODevice::Text)) {
+        qWarning() << "Cannot open log file:" << g_logFile.fileName()
+                   << g_logFile.errorString();
+        return false;
+    }
+
+    return true;
 }
 
 void log(const QString &msg)
 {
     QMutexLocker locker(&g_logMutex);
-
-    initLog();
 
     QString line =
         QString("[%1] %2")
@@ -70,6 +77,9 @@ void log(const QString &msg)
             .arg(msg);
 
     qInfo().noquote() << line;
+
+    if (!initLog())
+        return;
 
     QTextStream out(&g_logFile);
     out << line << "\n";
@@ -82,6 +92,9 @@ void log(const QString &msg)
 
         rotateLogs(name);
 
-        g_logFile.open(QIODevice::Append | QIODevice::Text);
+        if (!g_logFile.open(QIODevice::Append | QIODevice::Text)) {
+            qWarning() << "Cannot reopen log file after rotation:"
+                       << g_logFile.fileName() << g_logFile.errorString();
+        }
     }
 }
