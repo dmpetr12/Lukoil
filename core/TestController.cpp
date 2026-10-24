@@ -58,7 +58,10 @@ TestController::TestController(QObject *parent)
     m_allTestTimer->setSingleShot(true);
 
     connect(m_allTestTimer, &QTimer::timeout, this, [this]() {
-        handleAllLinesStep();
+        if (m_allTestPhase == AllTestPhase::Warmup)
+            startCurrentAllLinesMeasurement();
+        else if (m_allTestPhase == AllTestPhase::Measuring)
+            handleAllLinesStep();
     });
 
     loadMaintenance();
@@ -195,6 +198,7 @@ void TestController::stopAnyActiveTest()
 
     if (m_allTestRunning) {
         m_allTestRunning = false;
+        m_allTestPhase = AllTestPhase::Idle;
         if (m_allTestTimer && m_allTestTimer->isActive())
             m_allTestTimer->stop();
     }
@@ -418,12 +422,14 @@ void TestController::startAllLinesTest(int durationMs)
                                           : TestKind::Functional);
     m_allTestRunning = true;
     m_allTestCurrentIndex = first;
+    m_allTestPhase = AllTestPhase::Warmup;
 
-    int warmupMs = durationMs - countFact * m_shotTimeMesure * 1000;
+    int warmupMs = durationMs - countFact * allLinesMeasurementWindowMs();
     if (warmupMs < m_shotTimeWarm * 1000)
         warmupMs = m_shotTimeWarm * 1000;
-    if (!m_io->requestStepTestStart(m_allTestCurrentIndex)) {
+    if (!m_io->requestNoMeasTestStart()) {
         m_allTestRunning = false;
+        m_allTestPhase = AllTestPhase::Idle;
         endMeasurements();
         allLineStatusReturn();
         setMeasuredLine(-1);
@@ -434,11 +440,27 @@ void TestController::startAllLinesTest(int durationMs)
         return;
     }
 
-    setMeasuredLine(m_allTestCurrentIndex);
+    setMeasuredLine(-1);
     setTestTiming(durationMs / 1000);
 
     m_allTestTimer->start(warmupMs);
     log(QString("Тест всех линий старт, прогрев %1 ms").arg(warmupMs));
+}
+
+void TestController::startCurrentAllLinesMeasurement()
+{
+    if (!m_allTestRunning || !m_io || m_allTestCurrentIndex < 0)
+        return;
+
+    if (!m_io->requestStepTestStart(m_allTestCurrentIndex)) {
+        log("⚠️ Не удалось подключить измеритель, прерываем тест");
+        stopAnyActiveTest();
+        return;
+    }
+
+    m_allTestPhase = AllTestPhase::Measuring;
+    setMeasuredLine(m_allTestCurrentIndex);
+    m_allTestTimer->start(allLinesMeasurementWindowMs());
 }
 
 void TestController::handleAllLinesStep()
@@ -470,6 +492,7 @@ void TestController::handleAllLinesStep()
         m_io->requestStepTestStop();
         log("✅ ТЕСТ всех линий завершён");
         m_allTestRunning = false;
+        m_allTestPhase = AllTestPhase::Idle;
         endMeasurements();
         allLineStatusReturn();
         setMeasuredLine(-1);
@@ -489,23 +512,15 @@ void TestController::handleAllLinesStep()
     }
 
     m_allTestCurrentIndex = nextIdx;
+    startCurrentAllLinesMeasurement();
+}
 
-    if (!m_io->requestStepTestStart(nextIdx)) {
-        m_io->requestStepTestStop();
-        log("⚠️ Не удалось включить измерение для следующей линии, прерываем тест");
-        m_allTestRunning = false;
-        endMeasurements();
-        allLineStatusReturn();
-        setActive(Active::None);
-        setSource(Source::None);
-        setCurrentTestKind(TestKind::None);
-        setMeasuredLine(-1);
-        clearTestTiming();
-        return;
-    }
-
-    setMeasuredLine(m_allTestCurrentIndex);
-    m_allTestTimer->start(m_shotTimeMesure * 1000);
+int TestController::allLinesMeasurementWindowMs() const
+{
+    const int switchDelayMs = m_io
+        ? m_io->measurementSwitchDelayMs()
+        : LineIoManager::DefaultMeasurementSwitchDelayMs;
+    return m_shotTimeMesure * 1000 + switchDelayMs;
 }
 
 bool TestController::checkLinePowerInternal(Line *line) const
@@ -601,5 +616,7 @@ int TestController::calcAllLinesTestDurationSec() const
     if (countFact <= 0)
         return 0;
 
-    return (countFact - 1) * m_shotTimeMesure + m_shotTimeWarm;
+    const qint64 totalMs = qint64(m_shotTimeWarm) * 1000
+        + qint64(countFact) * allLinesMeasurementWindowMs();
+    return int((totalMs + 999) / 1000);
 }

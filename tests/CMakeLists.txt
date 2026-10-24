@@ -10,3 +10,14 @@ target_link_libraries(line-io-manager-tests PRIVATE
 )
 
 add_test(NAME line-io-manager-tests COMMAND line-io-manager-tests)
+
+qt_add_executable(test-controller-tests
+    test_controller_tests.cpp
+)
+
+target_link_libraries(test-controller-tests PRIVATE
+    core
+    Qt6::Test
+)
+
+add_test(NAME test-controller-tests COMMAND test-controller-tests)

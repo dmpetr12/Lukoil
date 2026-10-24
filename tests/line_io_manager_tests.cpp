@@ -74,6 +74,52 @@ private slots:
         QVERIFY(!relayOn(io, 0, 4));
     }
 
+    void switchingAcrossModulesKeepsOnlyOneMeasurementRelayOn()
+    {
+        AppConfig config;
+        ModbusBus bus(&config);
+        bus.setRelayModuleCount(2);
+        LinesModel lines;
+        addTestLines(lines, 5);
+        LineIoManager io;
+        io.m_twoStepDelayMs = 20;
+        io.bind(&bus, &lines, 5);
+
+        QVERIFY(io.requestStepTestStart(2));
+        QTRY_VERIFY_WITH_TIMEOUT(relayOn(io, 0, 8), 200);
+
+        QVERIFY(io.requestStepTestStart(3));
+        QVERIFY(!relayOn(io, 0, 8));
+        QVERIFY(!relayOn(io, 1, 2));
+
+        QTRY_VERIFY_WITH_TIMEOUT(relayOn(io, 1, 2), 200);
+        QVERIFY(!relayOn(io, 0, 4));
+        QVERIFY(!relayOn(io, 0, 6));
+        QVERIFY(!relayOn(io, 0, 8));
+        QVERIFY(!relayOn(io, 1, 4));
+    }
+
+    void stoppingDuringGapPreventsDelayedMeasurementConnection()
+    {
+        AppConfig config;
+        ModbusBus bus(&config);
+        bus.setRelayModuleCount(1);
+        LinesModel lines;
+        addTestLines(lines, 3);
+        LineIoManager io;
+        io.m_twoStepDelayMs = 30;
+        io.bind(&bus, &lines, 3);
+
+        QVERIFY(io.requestStepTestStart(0));
+        io.requestStepTestStop();
+        QTest::qWait(60);
+
+        QVERIFY(!io.stepTestActive());
+        QVERIFY(!relayOn(io, 0, 4));
+        QVERIFY(!relayOn(io, 0, 6));
+        QVERIFY(!relayOn(io, 0, 8));
+    }
+
     void singleLineTestKeepsAllWorkingPathsEnabled()
     {
         AppConfig config;

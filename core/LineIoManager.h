@@ -26,6 +26,8 @@ class LineIoManager : public QObject
     Q_PROPERTY(bool doorOpen READ doorOpen NOTIFY doorOpenChanged)
 
 public:
+    static constexpr int DefaultMeasurementSwitchDelayMs = 300;
+
     explicit LineIoManager(QObject *parent = nullptr);
 
     void bind(ModbusBus *bus, LinesModel *linesModel, int numLines);
@@ -95,6 +97,7 @@ public:
     bool confirmedLineOn(int lineIndex) const;
     bool confirmedLineStateKnown(int lineIndex) const;
     bool relayTransitionInProgress() const;
+    int measurementSwitchDelayMs() const { return m_twoStepDelayMs; }
 
 signals:
     void fireChanged(bool active);
@@ -218,7 +221,7 @@ private:
     int  m_singleTestLine = -1;
 
     QTimer *m_StepSwich = nullptr;
-    int m_twoStepDelayMs = 300;
+    int m_twoStepDelayMs = DefaultMeasurementSwitchDelayMs;
 
     bool m_alarmLampOn = false;
     bool m_doorOpen = false;

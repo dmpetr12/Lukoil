@@ -70,6 +70,7 @@ signals:
 
 private:
     enum class Active { None, Single, All, NoMeas };
+    enum class AllTestPhase { Idle, Warmup, Measuring };
 
     void startTestInternal(int lineIndex, int sec);
     void stopAnyActiveTest();
@@ -88,7 +89,9 @@ private:
 
     void startSingleLineTest(int lineIndex, int durationMs);
     void startAllLinesTest(int durationMs);
+    void startCurrentAllLinesMeasurement();
     void handleAllLinesStep();
+    int allLinesMeasurementWindowMs() const;
 
     bool checkLinePowerInternal(Line *line) const;
 
@@ -116,6 +119,7 @@ private:
     QTimer *m_allTestTimer = nullptr;
     bool    m_allTestRunning = false;
     int     m_allTestCurrentIndex = -1;
+    AllTestPhase m_allTestPhase = AllTestPhase::Idle;
 
     int     m_shotTimeMesure = 10;
     int     m_shotTimeWarm = 60;
