@@ -30,3 +30,8 @@ add_subdirectory(core)
 add_subdirectory(hmi)
 add_subdirectory(service)
 add_subdirectory(web)
+
+include(CTest)
+if(BUILD_TESTING)
+    add_subdirectory(tests)
+endif()

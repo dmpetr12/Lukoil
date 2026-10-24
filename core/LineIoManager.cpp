@@ -51,25 +51,17 @@ LineIoManager::LineIoManager(QObject *parent)
     m_StepSwich->setSingleShot(true);
 
     connect(m_StepSwich, &QTimer::timeout, this, [this]() {
-        if (!m_stepTestActive || m_stepTestLine < 0) {
-            m_twoStepKind = TwoStepKind::None;
+        const bool validStepTarget = m_stepTestActive && m_stepTestLine >= 0;
+        const bool validSingleTarget = m_singleTestActive && m_singleTestLine >= 0;
+        if ((!validStepTarget && !validSingleTarget)
+            || m_measurementSwitchState != MeasurementSwitchState::WaitingForConnect) {
+            m_measurementSwitchState = MeasurementSwitchState::Disconnected;
             return;
         }
 
-        if (m_twoStepKind == TwoStepKind::Step1) {
-            m_twoStepKind = TwoStepKind::Step2;
-            recomputeDesiredAll();
-            applyAllModules(true);
-            m_StepSwich->start(m_twoStepDelayMs);
-            return;
-        }
-
-        if (m_twoStepKind == TwoStepKind::Step2) {
-            m_twoStepKind = TwoStepKind::Step3;
-            recomputeDesiredAll();
-            applyAllModules(true);
-            return;
-        }
+        m_measurementSwitchState = MeasurementSwitchState::Connected;
+        recomputeDesiredAll();
+        applyAllModules(true);
     });
 
 }
@@ -338,7 +330,6 @@ void LineIoManager::cancelTestsDueToEmergency()
     if (m_stepTestActive) {
         m_stepTestActive = false;
         m_stepTestLine = -1;
-        m_twoStepKind = TwoStepKind::None;
 
         anyChanged = true;
     }
@@ -374,12 +365,14 @@ bool LineIoManager::requestSingleLineTestStart(int lineIndex)
     m_noMeasTestActive = false;
     m_singleTestActive = true;
     m_singleTestLine = lineIndex;
+    m_measurementSwitchState = MeasurementSwitchState::WaitingForConnect;
 
     if (m_bus)
         m_bus->setModeTest();
 
     recomputeDesiredAll();
     applyAllModules(true);
+    m_StepSwich->start(m_twoStepDelayMs);
     return true;
 }
 
@@ -417,7 +410,7 @@ bool LineIoManager::requestStepTestStart(int lineIndex)
 
     m_stepTestActive = true;
     m_stepTestLine = lineIndex;
-    m_twoStepKind = TwoStepKind::Step1;
+    m_measurementSwitchState = MeasurementSwitchState::WaitingForConnect;
 
     if (m_bus)
         m_bus->setModeTest();
@@ -431,7 +424,6 @@ bool LineIoManager::requestStepTestStart(int lineIndex)
 void LineIoManager::requestStepTestStop()
 {
     stopStepSwichTimers();
-    m_twoStepKind = TwoStepKind::None;
 
     m_stepTestActive = false;
     m_stepTestLine = -1;
@@ -573,40 +565,27 @@ void LineIoManager::fillSingleLineTestMode(int lineIndex)
 {
     fillFireMode();
 
+    if (m_measurementSwitchState != MeasurementSwitchState::Connected)
+        return;
+
     int mod, bMeas, bWork;
     if (!mapLineToRelayBits(lineIndex, mod, bMeas, bWork))
         return;
-    setWorkLineOn(m_desiredRelays[mod], bWork, false);
     setMeasOn(m_desiredRelays[mod], bMeas, true);
 }
 
 void LineIoManager::fillStepTestMode(int lineIndex)
 {
+    fillNoMeasTestMode();
+
+    if (m_measurementSwitchState != MeasurementSwitchState::Connected)
+        return;
+
     int mod, bMeas, bWork;
     if (!mapLineToRelayBits(lineIndex, mod, bMeas, bWork))
         return;
 
-    switch (m_twoStepKind) {
-    case TwoStepKind::Step1:
-        fillNoMeasTestMode();
-        break;
-
-    case TwoStepKind::Step2:
-        fillNoMeasTestMode();
-        setMeasOn(m_desiredRelays[mod], bMeas, true);
-        break;
-
-    case TwoStepKind::Step3:
-        fillNoMeasTestMode();
-        setWorkLineOn(m_desiredRelays[mod], bWork, false);
-        setMeasOn(m_desiredRelays[mod], bMeas, true);
-        m_twoStepKind = TwoStepKind::None;
-        m_lastMes = lineIndex;
-        break;
-
-    default:
-        break;
-    }
+    setMeasOn(m_desiredRelays[mod], bMeas, true);
 }
 
 void LineIoManager::fillNormalMode()

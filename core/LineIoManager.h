@@ -219,7 +219,6 @@ private:
 
     QTimer *m_StepSwich = nullptr;
     int m_twoStepDelayMs = 300;
-    int m_lastMes = -1;
 
     bool m_alarmLampOn = false;
     bool m_doorOpen = false;
@@ -234,16 +233,15 @@ private:
     qint64 m_lastRelayApplyMsec = 0;
     int m_transitionGuardMs = 1500;
 
-    enum class TwoStepKind { None, Step1, Step2, Step3 };
-    TwoStepKind m_twoStepKind = TwoStepKind::None;
+    enum class MeasurementSwitchState { Disconnected, WaitingForConnect, Connected };
+    MeasurementSwitchState m_measurementSwitchState = MeasurementSwitchState::Disconnected;
 
     void stopStepSwichTimers()
     {
         if (m_StepSwich)
             m_StepSwich->stop();
 
-        m_twoStepKind = TwoStepKind::None;
-        m_lastMes = -1;
+        m_measurementSwitchState = MeasurementSwitchState::Disconnected;
     }
 };
 
