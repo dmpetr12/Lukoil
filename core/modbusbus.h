@@ -46,7 +46,7 @@ public:
 
     // ===== РЕЛЕ =====
     Q_INVOKABLE void setAllRelaysOff();
-    Q_INVOKABLE void setModuleRelaysBits(int moduleIndex, quint8 bits); // CHANGED
+    Q_INVOKABLE void setModuleRelaysBits(int moduleIndex, quint8 bits, quint64 sequence = 0);
 
     // ===== Режимы опроса =====
     Q_INVOKABLE void setModeNormal();   // 1 сек: входа всех модулей + ADL200 + SHT20
@@ -61,6 +61,7 @@ signals:
     void errorOccurred(const QString &message);
 
     void relaysUpdated(int moduleIndex, quint8 bits);
+    void relayWriteCompleted(int moduleIndex, quint8 bits, quint64 sequence);
     void inputsUpdated(int moduleIndex, quint8 bits);
 
     // ADL200 inlet (slave 10): U/I/P/F
@@ -92,6 +93,7 @@ private:
         int slaveAddr = 1;
 
         quint8 coilsBits = 0;   // CHANGED
+        quint64 sequence = 0;
 
         int start = 0;
         int count = 8;

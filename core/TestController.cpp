@@ -62,9 +62,34 @@ TestController::TestController(QObject *parent)
             startCurrentAllLinesMeasurement();
         else if (m_allTestPhase == AllTestPhase::Measuring)
             handleAllLinesStep();
+        else if (m_allTestPhase == AllTestPhase::Connecting) {
+            log("Measurement relay connection timeout; test aborted");
+            stopAnyActiveTest();
+        }
     });
 
     loadMaintenance();
+}
+
+void TestController::setIoManager(LineIoManager *io)
+{
+    if (m_io)
+        disconnect(m_io, &LineIoManager::measurementConnected, this, nullptr);
+    m_io = io;
+    if (!m_io)
+        return;
+    connect(m_io, &LineIoManager::measurementConnected, this, [this](int index) {
+        if (m_allTestRunning && m_allTestPhase == AllTestPhase::Connecting
+            && index == m_allTestCurrentIndex) {
+            setMeasuredLine(index);
+            m_allTestPhase = AllTestPhase::Measuring;
+            m_allTestTimer->start(m_shotTimeMesure * 1000);
+        } else if (m_active == Active::Single && index == m_singleTestIndex) {
+            setMeasuredLine(index);
+            if (m_singleTestTimer)
+                m_singleTestTimer->start(m_singleTestDurationMs);
+        }
+    });
 }
 
 // ===== API =====
@@ -348,13 +373,20 @@ void TestController::startSingleLineTest(int lineIndex, int durationMs)
         return;
     }
 
-    setMeasuredLine(lineIndex);
+    m_singleTestIndex = lineIndex;
+    m_singleTestDurationMs = durationMs;
+    setMeasuredLine(-1);
     setTestTiming(durationMs / 1000);
 
     m_singleTestTimer = new QTimer(this);
     m_singleTestTimer->setSingleShot(true);
 
     connect(m_singleTestTimer, &QTimer::timeout, this, [this, line]() {
+        if (measuredLine() < 0) {
+            log("Measurement relay connection timeout; test aborted");
+            stopAnyActiveTest();
+            return;
+        }
         const bool ok = checkLinePowerInternal(line);
         line->setStatus(ok ? Line::OK : Line::Failure);
         line->setLastMeasuredTest(QDateTime::currentDateTime());
@@ -382,7 +414,7 @@ void TestController::startSingleLineTest(int lineIndex, int durationMs)
         clearTestTiming();
     });
 
-    m_singleTestTimer->start(durationMs);
+    m_singleTestTimer->start(10000);
     log(QString("Тест линии %1 старт").arg(lineIndex));
 }
 
@@ -458,9 +490,9 @@ void TestController::startCurrentAllLinesMeasurement()
         return;
     }
 
-    m_allTestPhase = AllTestPhase::Measuring;
-    setMeasuredLine(m_allTestCurrentIndex);
-    m_allTestTimer->start(allLinesMeasurementWindowMs());
+    m_allTestPhase = AllTestPhase::Connecting;
+    setMeasuredLine(-1);
+    m_allTestTimer->start(10000);
 }
 
 void TestController::handleAllLinesStep()

@@ -34,6 +34,7 @@ public:
 
     Q_SLOT void onInputsUpdated(int moduleIndex, quint8 bits);
     Q_SLOT void onRelaysUpdated(int moduleIndex, quint8 bits); // CHANGED
+    Q_SLOT void onRelayWriteCompleted(int moduleIndex, quint8 bits, quint64 sequence);
 
     Q_SLOT void onBusOnline();                                 // CHANGED
     Q_SLOT void onBusOffline(const QString &reason);           // CHANGED
@@ -100,6 +101,7 @@ public:
     int measurementSwitchDelayMs() const { return m_twoStepDelayMs; }
 
 signals:
+    void measurementConnected(int lineIndex);
     void fireChanged(bool active);
     void programFireChanged(bool active);
 
@@ -222,6 +224,8 @@ private:
 
     QTimer *m_StepSwich = nullptr;
     int m_twoStepDelayMs = DefaultMeasurementSwitchDelayMs;
+    quint64 m_measurementSequence = 0;
+    quint8 m_pendingOffModules = 0;
 
     bool m_alarmLampOn = false;
     bool m_doorOpen = false;
@@ -236,7 +240,7 @@ private:
     qint64 m_lastRelayApplyMsec = 0;
     int m_transitionGuardMs = 1500;
 
-    enum class MeasurementSwitchState { Disconnected, WaitingForConnect, Connected };
+    enum class MeasurementSwitchState { Disconnected, WaitingForOff, WaitingForConnect, WaitingForOn, Connected };
     MeasurementSwitchState m_measurementSwitchState = MeasurementSwitchState::Disconnected;
 
     void stopStepSwichTimers()
@@ -245,6 +249,8 @@ private:
             m_StepSwich->stop();
 
         m_measurementSwitchState = MeasurementSwitchState::Disconnected;
+        m_pendingOffModules = 0;
+        ++m_measurementSequence;
     }
 };
 

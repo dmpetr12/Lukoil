@@ -442,7 +442,7 @@ void ModbusBus::setAllRelaysOff()
         setModuleRelaysBits(m, 0x00);
 }
 
-void ModbusBus::setModuleRelaysBits(int moduleIndex, quint8 bits)
+void ModbusBus::setModuleRelaysBits(int moduleIndex, quint8 bits, quint64 sequence)
 {
     if (moduleIndex < 0 || moduleIndex >= m_relayModuleCount)
         return;
@@ -454,6 +454,7 @@ void ModbusBus::setModuleRelaysBits(int moduleIndex, quint8 bits)
     r.start = 0;
     r.count = 8;
     r.coilsBits = bits; // CHANGED
+    r.sequence = sequence;
 
     enqueueHigh(r);
 }
@@ -661,6 +662,9 @@ void ModbusBus::sendRequest(const Request &r)
         }
 
         markRequestSuccess(r);
+
+        if (r.type == ReqType::WriteCoils8)
+            emit relayWriteCompleted(r.moduleIndex, r.coilsBits, r.sequence);
 
         if (r.type == ReqType::ReadInputs) {
             quint8 bits = 0;

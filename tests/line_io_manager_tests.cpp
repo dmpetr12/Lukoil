@@ -31,7 +31,87 @@ private:
         }
     }
 
+    static void acknowledgeOff(LineIoManager &io, ModbusBus &bus)
+    {
+        for (int module = 0; module < bus.relayModuleCount(); ++module)
+            emit bus.relayWriteCompleted(module, io.m_desiredRelays[module],
+                                         io.m_measurementSequence);
+    }
+
 private slots:
+    void delayedBusMustNotConnectMeterBeforeOffAcknowledgement()
+    {
+        AppConfig config;
+        ModbusBus bus(&config);
+        bus.setRelayModuleCount(2);
+        LinesModel lines;
+        addTestLines(lines, 5);
+        LineIoManager io;
+        io.m_twoStepDelayMs = 10;
+        io.bind(&bus, &lines, 5);
+        QVERIFY(io.requestStepTestStart(0));
+        QTest::qWait(60);
+        QVERIFY(!relayOn(io, 0, 4));
+    }
+
+    void allModulesMustAcknowledgeCurrentSequenceBeforeGapStarts()
+    {
+        AppConfig config;
+        ModbusBus bus(&config);
+        bus.setRelayModuleCount(2);
+        LinesModel lines;
+        addTestLines(lines, 5);
+        LineIoManager io;
+        io.m_twoStepDelayMs = 30;
+        io.bind(&bus, &lines, 5);
+        QVERIFY(io.requestStepTestStart(3));
+        emit bus.relayWriteCompleted(0, 0x01, io.m_measurementSequence);
+        emit bus.relayWriteCompleted(1, 0x00, io.m_measurementSequence - 1);
+        QTest::qWait(60);
+        QVERIFY(!relayOn(io, 1, 2));
+        emit bus.relayWriteCompleted(1, 0x00, io.m_measurementSequence);
+        QVERIFY(!relayOn(io, 1, 2));
+        QTRY_VERIFY_WITH_TIMEOUT(relayOn(io, 1, 2), 200);
+    }
+
+    void meterIsReadyOnlyAfterSelectedOnWriteAcknowledgement()
+    {
+        AppConfig config;
+        ModbusBus bus(&config);
+        LinesModel lines;
+        addTestLines(lines, 3);
+        LineIoManager io;
+        io.m_twoStepDelayMs = 10;
+        io.bind(&bus, &lines, 3);
+        QSignalSpy connected(&io, &LineIoManager::measurementConnected);
+        QVERIFY(io.requestStepTestStart(0));
+        acknowledgeOff(io, bus);
+        QTRY_VERIFY_WITH_TIMEOUT(relayOn(io, 0, 4), 200);
+        QCOMPARE(connected.count(), 0);
+        emit bus.relayWriteCompleted(0, 0x09, io.m_measurementSequence - 1);
+        QCOMPARE(connected.count(), 0);
+        emit bus.relayWriteCompleted(0, 0x09, io.m_measurementSequence);
+        QCOMPARE(connected.count(), 1);
+        QCOMPARE(connected.at(0).at(0).toInt(), 0);
+    }
+
+    void fireDuringGapCancelsMeasurementConnection()
+    {
+        AppConfig config;
+        ModbusBus bus(&config);
+        LinesModel lines;
+        addTestLines(lines, 3);
+        LineIoManager io;
+        io.m_twoStepDelayMs = 20;
+        io.bind(&bus, &lines, 3);
+        QVERIFY(io.requestStepTestStart(0));
+        acknowledgeOff(io, bus);
+        io.setProgramFire(true);
+        QTest::qWait(50);
+        QVERIFY(!relayOn(io, 0, 4));
+        QVERIFY(relayOn(io, 0, 1));
+    }
+
     void measuredLineKeepsWorkingPathEnabled()
     {
         AppConfig config;
@@ -44,6 +124,7 @@ private slots:
         io.bind(&bus, &lines, 5);
 
         QVERIFY(io.requestStepTestStart(0));
+        acknowledgeOff(io, bus);
         QTRY_VERIFY_WITH_TIMEOUT(relayOn(io, 0, 4), 200);
         QTest::qWait(50);
 
@@ -64,12 +145,14 @@ private slots:
         io.bind(&bus, &lines, 5);
 
         QVERIFY(io.requestStepTestStart(0));
+        acknowledgeOff(io, bus);
         QTRY_VERIFY_WITH_TIMEOUT(relayOn(io, 0, 4), 200);
 
         QVERIFY(io.requestStepTestStart(1));
         QVERIFY(!relayOn(io, 0, 4));
         QVERIFY(!relayOn(io, 0, 6));
 
+        acknowledgeOff(io, bus);
         QTRY_VERIFY_WITH_TIMEOUT(relayOn(io, 0, 6), 200);
         QVERIFY(!relayOn(io, 0, 4));
     }
@@ -86,12 +169,14 @@ private slots:
         io.bind(&bus, &lines, 5);
 
         QVERIFY(io.requestStepTestStart(2));
+        acknowledgeOff(io, bus);
         QTRY_VERIFY_WITH_TIMEOUT(relayOn(io, 0, 8), 200);
 
         QVERIFY(io.requestStepTestStart(3));
         QVERIFY(!relayOn(io, 0, 8));
         QVERIFY(!relayOn(io, 1, 2));
 
+        acknowledgeOff(io, bus);
         QTRY_VERIFY_WITH_TIMEOUT(relayOn(io, 1, 2), 200);
         QVERIFY(!relayOn(io, 0, 4));
         QVERIFY(!relayOn(io, 0, 6));
@@ -131,6 +216,7 @@ private slots:
         io.bind(&bus, &lines, 5);
 
         QVERIFY(io.requestSingleLineTestStart(0));
+        acknowledgeOff(io, bus);
 
         QVERIFY(relayOn(io, 0, 1));
         QTRY_VERIFY_WITH_TIMEOUT(relayOn(io, 0, 4), 500);

@@ -49,6 +49,7 @@ LineIoManager::LineIoManager(QObject *parent)
     m_normalWatchdog->start();
 
     m_StepSwich->setSingleShot(true);
+    m_StepSwich->setTimerType(Qt::PreciseTimer);
 
     connect(m_StepSwich, &QTimer::timeout, this, [this]() {
         const bool validStepTarget = m_stepTestActive && m_stepTestLine >= 0;
@@ -59,7 +60,7 @@ LineIoManager::LineIoManager(QObject *parent)
             return;
         }
 
-        m_measurementSwitchState = MeasurementSwitchState::Connected;
+        m_measurementSwitchState = MeasurementSwitchState::WaitingForOn;
         recomputeDesiredAll();
         applyAllModules(true);
     });
@@ -81,6 +82,9 @@ void LineIoManager::bind(ModbusBus *bus, LinesModel *linesModel, int numLines)
     // CHANGED: подключаем подтверждение состояния реле
     connect(m_bus, &ModbusBus::relaysUpdated,
             this, &LineIoManager::onRelaysUpdated,
+            Qt::UniqueConnection);
+    connect(m_bus, &ModbusBus::relayWriteCompleted,
+            this, &LineIoManager::onRelayWriteCompleted,
             Qt::UniqueConnection);
 
     // CHANGED: после восстановления шины заново продавливаем нужное состояние
@@ -163,6 +167,9 @@ void LineIoManager::onBusOnline()
 void LineIoManager::onBusOffline(const QString &reason)
 {
     Q_UNUSED(reason);
+
+    stopStepSwichTimers();
+    recomputeDesiredAll();
 
     const bool prevConfirmedFire = confirmedFireActive();
     const bool prevConfirmedStepTestActive = confirmedStepTestActive();
@@ -362,17 +369,18 @@ bool LineIoManager::requestSingleLineTestStart(int lineIndex)
         stopStepSwichTimers();
     }
 
+    stopStepSwichTimers();
     m_noMeasTestActive = false;
     m_singleTestActive = true;
     m_singleTestLine = lineIndex;
-    m_measurementSwitchState = MeasurementSwitchState::WaitingForConnect;
+    m_measurementSwitchState = MeasurementSwitchState::WaitingForOff;
+    m_pendingOffModules = quint8((1u << m_relayModuleCount) - 1u);
 
     if (m_bus)
         m_bus->setModeTest();
 
     recomputeDesiredAll();
     applyAllModules(true);
-    m_StepSwich->start(m_twoStepDelayMs);
     return true;
 }
 
@@ -410,15 +418,44 @@ bool LineIoManager::requestStepTestStart(int lineIndex)
 
     m_stepTestActive = true;
     m_stepTestLine = lineIndex;
-    m_measurementSwitchState = MeasurementSwitchState::WaitingForConnect;
+    m_measurementSwitchState = MeasurementSwitchState::WaitingForOff;
+    m_pendingOffModules = quint8((1u << m_relayModuleCount) - 1u);
 
     if (m_bus)
         m_bus->setModeTest();
 
     recomputeDesiredAll();
     applyAllModules(true);
-    m_StepSwich->start(m_twoStepDelayMs);
     return true;
+}
+
+void LineIoManager::onRelayWriteCompleted(int moduleIndex, quint8 bits, quint64 sequence)
+{
+    if (sequence == m_measurementSequence
+        && m_measurementSwitchState == MeasurementSwitchState::WaitingForOn) {
+        const int lineIndex = m_stepTestActive ? m_stepTestLine : m_singleTestLine;
+        int selectedModule, measurementBit, workBit;
+        if (mapLineToRelayBits(lineIndex, selectedModule, measurementBit, workBit)
+            && moduleIndex == selectedModule && (bits & (1u << measurementBit))) {
+            m_measurementSwitchState = MeasurementSwitchState::Connected;
+            emit measurementConnected(lineIndex);
+        }
+        return;
+    }
+    if (m_measurementSwitchState != MeasurementSwitchState::WaitingForOff
+        || sequence != m_measurementSequence
+        || moduleIndex < 0 || moduleIndex >= m_relayModuleCount)
+        return;
+
+    const quint8 measurementMask = moduleIndex == 0 ? 0xA8 : 0xAA;
+    if (bits & measurementMask)
+        return;
+
+    m_pendingOffModules &= quint8(~(1u << moduleIndex));
+    if (m_pendingOffModules == 0) {
+        m_measurementSwitchState = MeasurementSwitchState::WaitingForConnect;
+        m_StepSwich->start(m_twoStepDelayMs);
+    }
 }
 
 void LineIoManager::requestStepTestStop()
@@ -565,7 +602,8 @@ void LineIoManager::fillSingleLineTestMode(int lineIndex)
 {
     fillFireMode();
 
-    if (m_measurementSwitchState != MeasurementSwitchState::Connected)
+    if (m_measurementSwitchState != MeasurementSwitchState::Connected
+        && m_measurementSwitchState != MeasurementSwitchState::WaitingForOn)
         return;
 
     int mod, bMeas, bWork;
@@ -578,7 +616,8 @@ void LineIoManager::fillStepTestMode(int lineIndex)
 {
     fillNoMeasTestMode();
 
-    if (m_measurementSwitchState != MeasurementSwitchState::Connected)
+    if (m_measurementSwitchState != MeasurementSwitchState::Connected
+        && m_measurementSwitchState != MeasurementSwitchState::WaitingForOn)
         return;
 
     int mod, bMeas, bWork;
@@ -639,7 +678,7 @@ void LineIoManager::applyModuleIfChanged(int moduleIndex, bool force)
         return;
     //log(QString("APPLY send: module=%1 force=%2 desired=0x%3 lastSent=0x%4").arg(moduleIndex).arg(force).arg(QString::number(desired, 16).rightJustified(2, '0')).arg(QString::number(m_lastSentRelays[moduleIndex], 16).rightJustified(2, '0')));
 
-    m_bus->setModuleRelaysBits(moduleIndex, desired);
+    m_bus->setModuleRelaysBits(moduleIndex, desired, m_measurementSequence);
     m_lastSentRelays[moduleIndex] = desired;
     m_lastRelayApplyMsec = QDateTime::currentMSecsSinceEpoch();
 }

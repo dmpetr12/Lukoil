@@ -37,7 +37,7 @@ public:
     TestKind currentTestKind() const { return m_currentTestKind; }
 
     void setModel(LinesModel *model)      { m_model = model; }
-    void setIoManager(LineIoManager *io)  { m_io = io; }
+    void setIoManager(LineIoManager *io);
     void setMeterFastIntervalMs(int ms)   { m_meterFastIntervalMs = ms; }
     void setBus(ModbusBus *bus)           { m_bus = bus; }
 
@@ -70,7 +70,7 @@ signals:
 
 private:
     enum class Active { None, Single, All, NoMeas };
-    enum class AllTestPhase { Idle, Warmup, Measuring };
+    enum class AllTestPhase { Idle, Warmup, Connecting, Measuring };
 
     void startTestInternal(int lineIndex, int sec);
     void stopAnyActiveTest();
@@ -114,6 +114,8 @@ private:
     int m_meterFastIntervalMs = 200;
 
     QTimer *m_singleTestTimer = nullptr;
+    int m_singleTestIndex = -1;
+    int m_singleTestDurationMs = 0;
     QTimer *m_noMeasTimer = nullptr;
 
     QTimer *m_allTestTimer = nullptr;
