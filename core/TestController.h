@@ -4,6 +4,7 @@
 #include <QObject>
 #include <QTimer>
 #include <QDateTime>
+#include <QElapsedTimer>
 #include <cmath>
 #include <QJsonDocument>
 #include <QJsonObject>
@@ -39,7 +40,7 @@ public:
     void setModel(LinesModel *model)      { m_model = model; }
     void setIoManager(LineIoManager *io);
     void setMeterFastIntervalMs(int ms)   { m_meterFastIntervalMs = ms; }
-    void setBus(ModbusBus *bus)           { m_bus = bus; }
+    void setBus(ModbusBus *bus);
 
     bool testActive() const { return m_active != Active::None; }
     Source testSource() const { return m_source; }
@@ -70,7 +71,7 @@ signals:
 
 private:
     enum class Active { None, Single, All, NoMeas };
-    enum class AllTestPhase { Idle, Warmup, Connecting, Measuring };
+    enum class AllTestPhase { Idle, Warmup, Connecting, Settling, Reading, Holding };
 
     void startTestInternal(int lineIndex, int sec);
     void stopAnyActiveTest();
@@ -91,6 +92,9 @@ private:
     void startAllLinesTest(int durationMs);
     void startCurrentAllLinesMeasurement();
     void handleAllLinesStep();
+    void finishAllLinesTest();
+    void requestCurrentAllLinesSample();
+    void onTestMeterSample(quint64 sequence, double voltage, double current, double power);
     int allLinesMeasurementWindowMs() const;
 
     bool checkLinePowerInternal(Line *line) const;
@@ -123,7 +127,12 @@ private:
     int     m_allTestCurrentIndex = -1;
     AllTestPhase m_allTestPhase = AllTestPhase::Idle;
 
-    int     m_shotTimeMesure = 10;
+    int m_meterSettlingMs = 1000;
+    static constexpr int MeterPollIntervalMs = 500;
+    static constexpr int RelayTransportBudgetMs = 500;
+    quint64 m_meterSampleSequence = 0;
+    QElapsedTimer m_allTestClock;
+    int m_allTestDurationMs = 0;
     int     m_shotTimeWarm = 60;
     int     minSecTestDuration = 60;
 

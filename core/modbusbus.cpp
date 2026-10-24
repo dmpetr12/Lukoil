@@ -393,6 +393,20 @@ void ModbusBus::testFastTick()
     enqueueNorm(r);
 }
 
+void ModbusBus::requestTestMeterSample(quint64 sequence)
+{
+    if (!isConnected())
+        return;
+    Request r;
+    r.type = ReqType::ReadHolding;
+    r.slaveAddr = m_addrTest;
+    r.start = 0;
+    r.count = 4;
+    r.meterKind = MeterKind::DJSF_Test;
+    r.sequence = sequence;
+    enqueueHigh(r);
+}
+
 // =======================
 // (Опционально) round-robin опросы
 // =======================
@@ -702,6 +716,8 @@ void ModbusBus::sendRequest(const Request &r)
                 const double P = U * I;
 
                 emit testMeterUpdated(U, I, P);
+                if (r.sequence != 0)
+                    emit testMeterSampleReady(r.sequence, U, I, P);
             }
         }
         else if (r.type == ReqType::ReadHolding && r.meterKind == MeterKind::SHT20_Temperature) {

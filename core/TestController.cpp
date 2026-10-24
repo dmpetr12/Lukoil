@@ -56,14 +56,18 @@ TestController::TestController(QObject *parent)
     , m_allTestTimer(new QTimer(this))
 {
     m_allTestTimer->setSingleShot(true);
+    m_allTestTimer->setTimerType(Qt::PreciseTimer);
 
     connect(m_allTestTimer, &QTimer::timeout, this, [this]() {
         if (m_allTestPhase == AllTestPhase::Warmup)
             startCurrentAllLinesMeasurement();
-        else if (m_allTestPhase == AllTestPhase::Measuring)
-            handleAllLinesStep();
-        else if (m_allTestPhase == AllTestPhase::Connecting) {
-            log("Measurement relay connection timeout; test aborted");
+        else if (m_allTestPhase == AllTestPhase::Settling)
+            requestCurrentAllLinesSample();
+        else if (m_allTestPhase == AllTestPhase::Holding)
+            finishAllLinesTest();
+        else if (m_allTestPhase == AllTestPhase::Connecting
+                 || m_allTestPhase == AllTestPhase::Reading) {
+            log("Test relay/meter response timeout; test aborted");
             stopAnyActiveTest();
         }
     });
@@ -81,15 +85,23 @@ void TestController::setIoManager(LineIoManager *io)
     connect(m_io, &LineIoManager::measurementConnected, this, [this](int index) {
         if (m_allTestRunning && m_allTestPhase == AllTestPhase::Connecting
             && index == m_allTestCurrentIndex) {
-            setMeasuredLine(index);
-            m_allTestPhase = AllTestPhase::Measuring;
-            m_allTestTimer->start(m_shotTimeMesure * 1000);
+            m_allTestPhase = AllTestPhase::Settling;
+            m_allTestTimer->start(m_meterSettlingMs);
         } else if (m_active == Active::Single && index == m_singleTestIndex) {
             setMeasuredLine(index);
             if (m_singleTestTimer)
                 m_singleTestTimer->start(m_singleTestDurationMs);
         }
     });
+}
+
+void TestController::setBus(ModbusBus *bus)
+{
+    if (m_bus)
+        disconnect(m_bus, &ModbusBus::testMeterSampleReady, this, &TestController::onTestMeterSample);
+    m_bus = bus;
+    if (m_bus)
+        connect(m_bus, &ModbusBus::testMeterSampleReady, this, &TestController::onTestMeterSample);
 }
 
 // ===== API =====
@@ -456,6 +468,10 @@ void TestController::startAllLinesTest(int durationMs)
     m_allTestCurrentIndex = first;
     m_allTestPhase = AllTestPhase::Warmup;
 
+    durationMs = qMax(durationMs, m_shotTimeWarm * 1000
+                     + countFact * allLinesMeasurementWindowMs());
+    m_allTestDurationMs = durationMs;
+    m_allTestClock.start();
     int warmupMs = durationMs - countFact * allLinesMeasurementWindowMs();
     if (warmupMs < m_shotTimeWarm * 1000)
         warmupMs = m_shotTimeWarm * 1000;
@@ -473,7 +489,7 @@ void TestController::startAllLinesTest(int durationMs)
     }
 
     setMeasuredLine(-1);
-    setTestTiming(durationMs / 1000);
+    setTestTiming((durationMs + 999) / 1000);
 
     m_allTestTimer->start(warmupMs);
     log(QString("Тест всех линий старт, прогрев %1 ms").arg(warmupMs));
@@ -493,6 +509,30 @@ void TestController::startCurrentAllLinesMeasurement()
     m_allTestPhase = AllTestPhase::Connecting;
     setMeasuredLine(-1);
     m_allTestTimer->start(10000);
+}
+
+void TestController::requestCurrentAllLinesSample()
+{
+    m_allTestPhase = AllTestPhase::Reading;
+    ++m_meterSampleSequence;
+    m_allTestTimer->start(5000);
+    if (m_bus)
+        m_bus->requestTestMeterSample(m_meterSampleSequence);
+}
+
+void TestController::onTestMeterSample(quint64 sequence, double voltage, double current, double power)
+{
+    if (!m_allTestRunning || m_allTestPhase != AllTestPhase::Reading
+        || sequence != m_meterSampleSequence)
+        return;
+    Line *line = m_model ? m_model->line(m_allTestCurrentIndex) : nullptr;
+    if (!line || !std::isfinite(voltage) || !std::isfinite(current) || !std::isfinite(power))
+        return;
+    m_allTestTimer->stop();
+    line->setVoltage(voltage);
+    line->setCurrent(current);
+    line->setPower(power);
+    handleAllLinesStep();
 }
 
 void TestController::handleAllLinesStep()
@@ -521,25 +561,14 @@ void TestController::handleAllLinesStep()
 
     const int nextIdx = findNextTestableIndex(m_allTestCurrentIndex);
     if (nextIdx < 0) {
-        m_io->requestStepTestStop();
-        log("✅ ТЕСТ всех линий завершён");
-        m_allTestRunning = false;
-        m_allTestPhase = AllTestPhase::Idle;
-        endMeasurements();
-        allLineStatusReturn();
-        setMeasuredLine(-1);
-        setActive(Active::None);
-        setSource(Source::None);
-        setCurrentTestKind(TestKind::None);
-        clearTestTiming();
-
-        if (m_currentAllIsLong)
-            recordLongSystemTestResult(m_currentAllAllOk);
-
-        if (m_model && !m_linesSavePath.isEmpty())
-            m_model->saveToFile(m_linesSavePath);
-
-        m_currentAllIsLong = false;
+        const qint64 remainingMs = m_allTestDurationMs - m_allTestClock.elapsed();
+        if (remainingMs > 0) {
+            m_io->requestNoMeasTestStart();
+            m_allTestPhase = AllTestPhase::Holding;
+            m_allTestTimer->start(int(remainingMs));
+        } else {
+            finishAllLinesTest();
+        }
         return;
     }
 
@@ -547,12 +576,36 @@ void TestController::handleAllLinesStep()
     startCurrentAllLinesMeasurement();
 }
 
+void TestController::finishAllLinesTest()
+{
+    m_io->requestStepTestStop();
+    m_io->requestNoMeasTestStop();
+    log("✅ ТЕСТ всех линий завершён");
+    m_allTestRunning = false;
+    m_allTestPhase = AllTestPhase::Idle;
+    endMeasurements();
+    allLineStatusReturn();
+    setMeasuredLine(-1);
+    setActive(Active::None);
+    setSource(Source::None);
+    setCurrentTestKind(TestKind::None);
+    clearTestTiming();
+
+    if (m_currentAllIsLong)
+        recordLongSystemTestResult(m_currentAllAllOk);
+
+    if (m_model && !m_linesSavePath.isEmpty())
+        m_model->saveToFile(m_linesSavePath);
+
+    m_currentAllIsLong = false;
+}
+
 int TestController::allLinesMeasurementWindowMs() const
 {
     const int switchDelayMs = m_io
         ? m_io->measurementSwitchDelayMs()
         : LineIoManager::DefaultMeasurementSwitchDelayMs;
-    return m_shotTimeMesure * 1000 + switchDelayMs;
+    return m_meterSettlingMs + MeterPollIntervalMs + RelayTransportBudgetMs + switchDelayMs;
 }
 
 bool TestController::checkLinePowerInternal(Line *line) const

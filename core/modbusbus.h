@@ -51,6 +51,7 @@ public:
     // ===== Режимы опроса =====
     Q_INVOKABLE void setModeNormal();   // 1 сек: входа всех модулей + ADL200 + SHT20
     Q_INVOKABLE void setModeTest();     // 500мс: входа модуля0 + DJSF
+    void requestTestMeterSample(quint64 sequence);
 
     // (опционально) ручной опрос
     Q_INVOKABLE void pollAllInputs();   // round-robin
@@ -69,6 +70,7 @@ signals:
 
     // DJSF1352 test (slave 11): U/I/P
     void testMeterUpdated(double U, double I, double P);
+    void testMeterSampleReady(quint64 sequence, double U, double I, double P);
 
     // SHT20 (slave 12): температура
     void temperatureUpdated(double T);
