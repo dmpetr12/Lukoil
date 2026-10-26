@@ -1,0 +1,220 @@
+# Развёртывание Lukoil на Ubuntu 24.04 LTS
+
+Инструкция для Ubuntu 24.04 Desktop на панели, с systemd и графическим входом пользователя. Проект собирается **на самой панели**, под её процессор. Windows-файлы `.exe` не используются. Ubuntu Server без графического сеанса запустит backend, но для HMI потребуется рабочий стол.
+
+## 1. Что устанавливается
+
+Скрипт `update_panel.sh` запускается обычным пользователем панели. Через sudo он устанавливает зависимости, добавляет пользователя в `dialout` и создаёт системную службу. Исходники не удаляются и не скачиваются из DialogG2: устанавливается именно локальная версия Lukoil.
+
+```text
+~/Lukoil/                         исходники
+  update_panel.sh
+  build/ubuntu-release/          сборка Release и тесты
+~/Lukoil-runtime/                рабочая папка установленного шкафа
+  config.json
+  lines.json
+  schedule.json
+  maintenance.json              создаётся приложением
+  logs/
+  backups/settings-.../          снимки JSON перед обновлениями
+  releases/release-.../          бинарники установленных версий
+  current -> releases/...       установленная версия
+  previous -> releases/...      предыдущая версия, если была
+  web/dist -> ...               веб-интерфейс
+  start-hmi.sh
+~/.config/autostart/lukoil-hmi.desktop
+/etc/systemd/system/lukoil-backend.service
+```
+
+Новые версии не перезаписывают существующие JSON в `Lukoil-runtime`. Каталог исходников и каталог исполнения — разные вещи. Для изменения настроек работающего шкафа редактируйте **`~/Lukoil-runtime/config.json`**, а не файл в исходниках.
+
+Пароль приложения хранится через QSettings: обычно `~/.config/MyCompany/Panel.conf`. Скрипт этот файл не изменяет. При переносе на другого пользователя сохраните его отдельно; стартовый пароль без настроек — `1234`.
+
+## 2. Подготовка Ubuntu
+
+Войдите под пользователем, который будет работать с экраном панели. Он должен иметь sudo. Не запускайте установщик через `sudo bash`.
+
+Для установки нужен интернет и включённый репозиторий Universe. Если apt не находит Qt:
+
+```bash
+sudo apt install software-properties-common
+sudo add-apt-repository universe
+sudo apt update
+```
+
+Скрипт установит компилятор, CMake, Ninja, Python 3, Qt Core/Quick, HttpServer, WebSockets, SerialBus, SerialPort, QML-модули и шрифт Ubuntu. Штатная версия Qt в Ubuntu 24.04 — 6.4.2. Проект использует совместимый вызов часового пояса.
+
+Не подмешивайте Windows Qt в Linux и не запускайте установку из окружения другого Qt SDK. Для первой установки оставьте стандартные `PATH` и `CMAKE_PREFIX_PATH` Ubuntu.
+
+## 3. Передача проекта с Windows
+
+На Ubuntu установите SSH-сервер, если его ещё нет:
+
+```bash
+sudo apt install openssh-server
+sudo systemctl enable --now ssh
+hostname -I
+```
+
+В PowerShell на Windows упакуйте исходники без локальных сборок и настроек редактора:
+
+```powershell
+tar --exclude=Lukoil/.git --exclude=Lukoil/.qtcreator --exclude=Lukoil/build --exclude=Lukoil/graphify-out --exclude=Lukoil/logs --exclude=Lukoil/.superpowers -czf C:\Qt_work\Lukoil-ubuntu.tar.gz -C C:\Qt_work Lukoil
+scp C:\Qt_work\Lukoil-ubuntu.tar.gz panel@192.168.1.100:~/
+```
+
+Замените `panel` и IP на пользователя и адрес панели. При наличии исходников на флешке можно перенести архив ею. GitHub-репозиторий Lukoil пока не задан — скрипт не требует его.
+
+На Ubuntu:
+
+```bash
+cd ~
+tar -xzf Lukoil-ubuntu.tar.gz
+cd ~/Lukoil
+bash update_panel.sh --check
+```
+
+`--check` только проверяет состав исходников; ничего не устанавливает и не останавливает.
+
+## 4. Настройки шкафа перед первым запуском
+
+Перед первой установкой проверьте `~/Lukoil/config.json`, `lines.json`, `schedule.json`. Они станут начальными настройками новой установки.
+
+Особенно проверьте:
+
+- `numLines`, `maxRelayModules` — фактическое количество линий и релейных модулей. Исходный файл содержит 25 линий и 1 модуль; не принимайте эти значения за готовую настройку вашего шкафа.
+- `serialPort` — внутренний RS-485 с реле и приборами.
+- `modbusRtu.device` — отдельный порт внешнего Modbus RTU сервера; не назначайте тот же порт, что и внутренней шине.
+- `modbusRtu.enabled`, `modbusTcp.enabled`, `webServer.enabled` — включайте только используемые интерфейсы.
+- `logging.level`: `INFO` для полноэкранного режима без курсора; `DEBUG` для окна 1024×768 с мышью.
+
+Посмотреть порты:
+
+```bash
+ls -l /dev/serial/by-id/ /dev/serial/by-path/
+ls -l /dev/rs485_internal /dev/rs485_server
+```
+
+Имена `/dev/rs485_internal` и `/dev/rs485_server` из исходного конфига должны реально существовать. Если таких ссылок нет, укажите в конфиге соответствующие `/dev/serial/by-id/...` или `/dev/serial/by-path/...`. Не создавайте правила udev с придуманными VID/PID: сначала определите устройства конкретной панели.
+
+### OPC UA
+
+В обычной установке скрипт собирает проект с `PANEL_ENABLE_OPCUA_SERVER=OFF`: Windows-путь к исходникам open62541 из Qt на Ubuntu отсутствует. Для нового runtime он выключает и `opcUa.enabled` в конфиге. При обновлении существующий конфиг не изменяется; проверьте эту настройку самостоятельно.
+
+Если OPC UA нужен, заранее перенесите на Ubuntu каталог исходников Qt OPC UA с файлами `src/3rdparty/open62541/open62541.c` и `.h`, затем запускайте:
+
+```bash
+QT_OPCUA_SOURCE_DIR="$HOME/qt-opcua-source" bash update_panel.sh
+```
+
+После сборки включите `opcUa.enabled` в runtime-конфиге и перезапустите службу. Эта опция требует отдельной проверки используемой версии open62541; исходники автоматически не скачиваются.
+
+## 5. Остановка предыдущего проекта
+
+На панели должен работать один backend шкафа. Сначала посмотрите службы:
+
+```bash
+systemctl list-units --type=service --all | grep -Ei 'panel|dialog|lukoil'
+pgrep -af 'panel-backend|dialog-g2-engine|panel-hmi|dialog-g2-hmi'
+```
+
+Остановите и отключите **реально используемую** старую службу, например:
+
+```bash
+sudo systemctl disable --now dialog-g2-engine.service
+```
+
+Для старых пользовательских служб используйте `systemctl --user disable --now ИМЯ.service`. Закройте старый HMI и уберите его `.desktop` из `~/.config/autostart/`, сохранив копию при необходимости. Не оставляйте параллельный запуск старого проекта: он может занять RS-485, TCP-порты и имя IPC.
+
+Установщик откажется продолжать при активной известной старой системной службе или постороннем процессе `panel-backend`. Он не отключает чужие службы и не освобождает порт 502 принудительно.
+
+## 6. Установка
+
+```bash
+cd ~/Lukoil
+bash update_panel.sh
+```
+
+По умолчанию сборка идёт в два потока, чтобы не перегружать память панели. Если ресурсов достаточно:
+
+```bash
+BUILD_JOBS=4 bash update_panel.sh
+```
+
+Порядок: зависимости → Release-сборка → оба набора тестов → подготовка новой версии → остановка своего backend → резервная копия настроек → переключение версии → запуск службы.
+
+При первой установке новый `config.json` автоматически получает `logging.level=INFO`. Уже существующий runtime-конфиг сохраняется. Если сборка или тесты падают, установленная служба остаётся работать. При неудачном старте новой службы скрипт пытается вернуть прежние бинарники. Снимок JSON остаётся в `backups/`.
+
+После первой установки перезагрузите панель:
+
+```bash
+sudo reboot
+```
+
+Backend запускается при загрузке Ubuntu, до входа в рабочий стол. HMI запускается после графического входа **того же пользователя**. Для панели без участия оператора включите автоматический вход в настройках Ubuntu Desktop. Рекомендуется сеанс **Ubuntu on Xorg**: выйти → выбрать пользователя → шестерёнка → Ubuntu on Xorg. Launcher использует платформу Qt `xcb` и сначала ждёт ответа backend, чтобы HMI сразу получил правильный режим окна и курсора.
+
+Через SSH HMI не открывается автоматически в чужом графическом сеансе. Для ручного запуска из терминала рабочего стола:
+
+```bash
+~/Lukoil-runtime/start-hmi.sh
+```
+
+## 7. Проверка
+
+```bash
+systemctl status lukoil-backend.service --no-pager
+journalctl -u lukoil-backend.service -b -n 100 --no-pager
+tail -n 50 ~/Lukoil-runtime/logs/system_log.txt
+pgrep -af 'panel-backend|panel-hmi'
+```
+
+В журнале ожидаются `Backend logLevel loaded: INFO` и `IPC server started: emergency_panel_backend`. Это подтверждает запуск приложения, но ещё не исправность оборудования. Проверьте связь с модулями, количество линий, напряжение/ток DJSF1352, аварийные входы и поочерёдность измерительных реле на шкафу.
+
+Изменить настройку после установки:
+
+```bash
+nano ~/Lukoil-runtime/config.json
+sudo systemctl restart lukoil-backend.service
+```
+
+После изменения `logging.level` закройте и заново запустите HMI: видимость курсора определяется при его старте.
+
+Веб-интерфейс доступен только при `webServer.enabled=true`: `http://IP_ПАНЕЛИ:8080`. При включённом UFW откройте нужный порт только для доверенной сети. Modbus TCP и OPC UA без настроенной защиты не следует публиковать в интернет.
+
+Служба получает `CAP_SYS_TIME` и `CAP_NET_BIND_SERVICE`: это нужно для настройки часов и порта Modbus TCP 502. Синхронизация с аппаратными часами через `hwclock` может потребовать отдельных прав на `/dev/rtc*`; её ошибка видна в журнале. Синхронизация времени Ubuntu по NTP может переустановить время после ручного изменения.
+
+## 8. Обновление и откат
+
+Перед обновлением перенесите новый архив исходников и распакуйте в `~/Lukoil`. Каталог `~/Lukoil-runtime` оставьте на месте. Затем:
+
+```bash
+cd ~/Lukoil
+bash update_panel.sh
+```
+
+Скрипт оставляет прежние версии и резервные копии. Они расходуют место; удаляйте только проверенные старые каталоги, не текущий и не предыдущий релиз.
+
+Ручной откат бинарников:
+
+```bash
+runtime="$HOME/Lukoil-runtime"
+test -x "$runtime/previous/panel-backend" || { echo 'Предыдущей версии нет'; exit 1; }
+previous=$(readlink -f "$runtime/previous")
+sudo systemctl stop lukoil-backend.service
+ln -sfn "$previous" "$runtime/current"
+sudo systemctl start lukoil-backend.service
+```
+
+Затем перезапустите HMI или графический сеанс. При необходимости отдельно восстановите JSON из выбранного `backups/settings-.../`, **когда backend остановлен**. Автоматический откат переключает бинарники; старые настройки намеренно не восстанавливаются поверх текущих.
+
+## 9. Типовые ошибки
+
+- `Qt6HttpServer not found`: проверьте Universe и пакет `qt6-httpserver-dev`.
+- `module ... is not installed`: проверьте QML-пакеты из списка зависимостей установщика.
+- `Could not connect to display`: HMI запущен из SSH/консоли без графического сеанса; запускайте из рабочего стола.
+- `Permission denied` на RS-485: проверьте `dialout`, фактический путь устройства и права; после добавления в группу перезайдите в сеанс.
+- `Address already in use`: найдите другой backend/службу на нужном порту; установщик не завершает их принудительно.
+- Ошибка сборки open62541: для базовой установки уберите `QT_OPCUA_SOURCE_DIR` и используйте сборку без OPC UA.
+- Скрипт после Windows сообщает `$'\r'`: `sed -i 's/\r$//' update_panel.sh`, затем снова `bash update_panel.sh`.
+
+Справочные источники: [Qt в Ubuntu 24.04](https://packages.ubuntu.com/search?keywords=qt6&suite=noble), [совместимость QTimeZone](https://doc.qt.io/qt-6/qtimezone.html).

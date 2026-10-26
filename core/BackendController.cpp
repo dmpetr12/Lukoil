@@ -1021,7 +1021,7 @@ QVariantMap BackendController::testSummary() const
 
 bool BackendController::setSystemTime(qint64 msec)
 {
-    const QDateTime dt = QDateTime::fromMSecsSinceEpoch(msec, QTimeZone::LocalTime);
+    const QDateTime dt = QDateTime::fromMSecsSinceEpoch(msec, QTimeZone::systemTimeZone());
     const QString iso = dt.toString("yyyy-MM-dd HH:mm:ss");
 
     log(QString("setSystemTime requested: %1").arg(iso));
