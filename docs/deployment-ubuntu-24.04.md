@@ -50,15 +50,15 @@ sudo apt update
 
 ### Публикация с Windows (один раз)
 
-Создайте отдельный пустой репозиторий **Lukoil** на вашем Git-сервере, например GitHub или GitLab. Не используйте репозиторий DialogG2. В текущей рабочей копии Lukoil удалённый адрес пока не настроен.
+Проект опубликован в отдельном репозитории **Lukoil**: https://github.com/dmpetr12/Lukoil. Основная ветка — `main`. Репозиторий DialogG2 для установки этой версии не используется.
 
-В PowerShell замените `URL_РЕПОЗИТОРИЯ_LUKOIL` реальным HTTPS или SSH адресом:
+В текущей Windows-копии `origin` уже настроен. Для отправки последующих коммитов в PowerShell:
 
 ```powershell
 cd C:\Qt_work\Lukoil
 git status
-git remote add origin URL_РЕПОЗИТОРИЯ_LUKOIL
-git push -u origin master
+git remote -v
+git push origin main
 ```
 
 Исходники уже находятся в локальной Git-истории. `git push` передаёт только коммиты: незакоммиченные изменения, например ваши текущие правки `lines.json`, не попадут на сервер. Перед публикацией проверьте `git diff` и отдельно закоммитьте только нужные изменения. Не используйте `git add .` вслепую: в проекте могут оставаться локальные копии настроек.
@@ -70,12 +70,12 @@ git push -u origin master
 ```bash
 sudo apt update
 sudo apt install git
-git clone --branch master URL_РЕПОЗИТОРИЯ_LUKOIL ~/Lukoil
+git clone --branch main https://github.com/dmpetr12/Lukoil.git ~/Lukoil
 cd ~/Lukoil
 bash update_panel.sh --check
 ```
 
-`master` — текущая ветка этого проекта. Если вы выбрали другую, укажите её при клонировании. Скрипт впоследствии использует upstream этой ветки.
+`main` — основная ветка этого проекта. Скрипт впоследствии использует upstream этой ветки.
 
 Если `~/Lukoil` уже существует после ручного копирования и не является Git-клоном нужного репозитория, не клонируйте поверх него. Сохраните эту папку под другим именем, затем сделайте чистый clone. `~/Lukoil-runtime` при этом оставьте на месте.
 
