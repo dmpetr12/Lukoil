@@ -1,7 +1,7 @@
 #!/usr/bin/env bash
 set -Eeuo pipefail
 
-# Run on the Ubuntu panel as its desktop user, from a copied source checkout.
+# Run on the Ubuntu panel as its desktop user, from the Lukoil checkout.
 SOURCE_DIR="$(cd -- "$(dirname -- "${BASH_SOURCE[0]}")" && pwd -P)"
 
 seed_runtime() {
@@ -30,10 +30,24 @@ rollback_install() {
     exit "$code"
 }
 
+pull_sources() {
+    local source_dir="$1"
+    git -C "$source_dir" rev-parse --show-toplevel >/dev/null || return 1
+    if ! git -C "$source_dir" diff --quiet HEAD --; then
+        echo 'Source files have local changes. Preserve them before updating; no files were reset.' >&2
+        return 1
+    fi
+    git -C "$source_dir" rev-parse --verify '@{upstream}' >/dev/null || {
+        echo 'No upstream branch. Clone the Lukoil repository first.' >&2; return 1;
+    }
+    git -C "$source_dir" pull --ff-only
+}
+
 main() {
     if [[ "${1:-}" == --help ]]; then
-        echo 'Usage: bash update_panel.sh [--check]'
-        echo 'Builds this local source and installs it for the current Ubuntu desktop user.'
+        echo 'Usage: bash update_panel.sh [--check | --pull]'
+        echo '--pull updates the tracked Git branch without merging, then runs the updated installer.'
+        echo 'Without --pull, builds the checked-out source and installs it for the desktop user.'
         return
     fi
     for file in CMakeLists.txt config.json lines.json schedule.json deploy/wait_backend.py; do
@@ -42,6 +56,10 @@ main() {
     if [[ "${1:-}" == --check ]]; then
         echo "Source layout OK: $SOURCE_DIR"
         return
+    fi
+    if [[ "${1:-}" == --pull && $# -eq 1 ]]; then
+        pull_sources "$SOURCE_DIR"
+        exec bash "$SOURCE_DIR/update_panel.sh"
     fi
     [[ $# -eq 0 ]] || { echo 'Unknown argument; use --help' >&2; return 1; }
     [[ $(id -u) -ne 0 ]] || { echo 'Run as the desktop user, without sudo.' >&2; return 1; }
@@ -79,7 +97,7 @@ main() {
     sudo -v
     sudo apt-get update
     sudo apt-get install -y --no-upgrade \
-        build-essential cmake ninja-build pkg-config python3 psmisc \
+        build-essential cmake ninja-build pkg-config python3 psmisc git \
         qt6-base-dev qt6-declarative-dev qt6-httpserver-dev qt6-websockets-dev \
         qt6-serialbus-dev qt6-serialport-dev qt6-qpa-plugins \
         qml6-module-qtquick qml6-module-qtquick-window qml6-module-qtquick-controls \

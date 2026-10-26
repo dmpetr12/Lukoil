@@ -1,1 +1,6 @@
 build/
+.qtcreator/
+graphify-out/
+logs/
+.superpowers/
+__pycache__/
