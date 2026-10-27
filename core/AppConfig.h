@@ -161,7 +161,7 @@ private:
     int m_numLines = 25;
     int m_maxRelayModules = 1;
     QString m_serialPort = "/dev/rs485_internal";
-    int m_tempReg=0x301;
+    int m_tempReg=0x0001;
 
     ModbusRtuSettings m_modbusRtu;
     ModbusTcpSettings m_modbusTcp;

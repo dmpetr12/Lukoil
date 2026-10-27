@@ -35,7 +35,7 @@ public:
     void setSht20Addr(int addr);                 // SHT20 (default 12)
 
     // SHT20 параметры (только температура)
-    void setSht20TempInputReg(int reg);          // default 0x0300
+    void setSht20TempInputReg(int reg);          // XY-MD02: default 0x0001, FC04
     void setSht20TempScale(double scale);        // default 0.1
 
     int relayModuleCount() const { return m_relayModuleCount; }
@@ -178,7 +178,7 @@ private:
     int m_addrSht20 = 12; // SHT20
 
     // SHT20 temperature
-    int m_sht20TempReg = 0x0300;
+    int m_sht20TempReg = 0x0001;
     double m_sht20TempScale = 0.1;
 
     int m_sht20PollDivider = 0;
