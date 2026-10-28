@@ -127,7 +127,7 @@ private:
     int     m_allTestCurrentIndex = -1;
     AllTestPhase m_allTestPhase = AllTestPhase::Idle;
 
-    int m_meterSettlingMs = 1000;
+    int m_meterSettlingMs = 10000; // Allow the shared meter/shunt circuit to settle after relay switching.
     static constexpr int MeterPollIntervalMs = 500;
     static constexpr int RelayTransportBudgetMs = 500;
     quint64 m_meterSampleSequence = 0;

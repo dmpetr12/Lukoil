@@ -53,7 +53,7 @@ private slots:
         TestController controller;
         controller.setModel(&lines);
 
-        QCOMPARE(controller.calcAllLinesTestDurationSec(), 65);
+        QCOMPARE(controller.calcAllLinesTestDurationSec(), 83);
     }
 
     void firstMeasurementStartsOnlyAfterWarmupPhase()
@@ -142,7 +142,7 @@ private slots:
         controller.setBus(&bus);
         controller.startTestOperator(-2, 120);
         QCOMPARE(controller.plannedTestDurationSec(), 120);
-        QCOMPARE(controller.m_allTestTimer->interval(), 115400);
+        QCOMPARE(controller.m_allTestTimer->interval(), 97400);
         controller.stopTest(-1);
     }
 
@@ -161,7 +161,7 @@ private slots:
         controller.startTestOperator(-2, 120);
         controller.startCurrentAllLinesMeasurement();
         emit io.measurementConnected(0);
-        QCOMPARE(controller.m_allTestTimer->interval(), 1000);
+        QCOMPARE(controller.m_allTestTimer->interval(), 10000);
         emit bus.testMeterSampleReady(1, 100.0, 1.0, 100.0);
         QCOMPARE(lines.line(0)->status(), Line::Test);
         QVERIFY(QMetaObject::invokeMethod(controller.m_allTestTimer, "timeout", Qt::DirectConnection));
