@@ -8,6 +8,7 @@ Rectangle {
     objectName: "pageStart"
     width: stackViewList.width
     height: stackViewList.height
+    readonly property bool fireModeActive: panel.fireActive || panel.programFireActive
 
     function recomputeMode() {
         if (panel.cabinetMode === 1) {   // Fire
@@ -28,18 +29,20 @@ Rectangle {
     }
 
     function actionButtonVisible() {
-        return unlocked
+        return unlocked || fireModeActive
     }
 
     function actionButtonText() {
+        if (fireModeActive)
+            return "СТОП ПОЖАР"
         if (panel.testRunning)
             return "ОСТАНОВИТЬ ТЕСТ"
-        if (panel.fireActive || panel.programFireActive)
-            return "СБРОС \"ПОЖАР\""
         return "ПУСК \"ПОЖАР\""
     }
 
     function actionButtonColor() {
+        if (fireModeActive)
+            return "#FF4C4C"
         if (panel.testRunning)
             return "#FFC700"
         if (panel.fireActive)
@@ -359,6 +362,7 @@ Rectangle {
 
                 Rectangle {
                     id: btnPass
+                    visible: !root.fireModeActive
                     width: 300
                     height: 100
                     radius: 20
@@ -418,6 +422,10 @@ Rectangle {
                             anchors.fill: parent
                             hoverEnabled: true
                             onClicked: {
+                                if (root.fireModeActive) {
+                                    panel.setProgramFire(false)
+                                    return
+                                }
                                 if (!unlocked)
                                     return
 
@@ -435,7 +443,7 @@ Rectangle {
 
                 Rectangle {
                     id: btnTestDur
-                    visible: unlocked
+                    visible: unlocked && !root.fireModeActive
                     width: 300
                     height: 100
                     radius: 20
@@ -470,7 +478,7 @@ Rectangle {
 
                 Rectangle {
                     id: btnTest
-                    visible: unlocked
+                    visible: unlocked && !root.fireModeActive
                     width: 300
                     height: 100
                     radius: 20
@@ -500,7 +508,7 @@ Rectangle {
 
                 Rectangle {
                     id: btnAjst
-                    visible: unlocked
+                    visible: unlocked && !root.fireModeActive
                     width: 300
                     height: 100
                     radius: 20
@@ -530,7 +538,7 @@ Rectangle {
 
                 Rectangle {
                     id: btnRasp
-                    visible: unlocked
+                    visible: unlocked && !root.fireModeActive
                     width: 300
                     height: 100
                     radius: 20
