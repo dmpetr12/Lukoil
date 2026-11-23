@@ -311,9 +311,12 @@ void BackendController::setupBus()
 
     QObject::connect(m_bus, &ModbusBus::testMeterUpdated,
                      this, [this](double U, double I, double P) {
+                         const int index = m_testController ? m_testController->measuredLine() : -1;
+                         const Line *line = m_lines ? m_lines->line(index) : nullptr;
+                         const double coefficient = line ? line->currentCoefficient() : 1.0;
                          m_testU->setValue(U);
-                         m_testI->setValue(I);
-                         m_testP->setValue(P);
+                         m_testI->setValue(I * coefficient);
+                         m_testP->setValue(P * coefficient);
                          emit stateChanged();
                      });
 
