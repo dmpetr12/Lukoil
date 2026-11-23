@@ -177,6 +177,7 @@ public:
             obj["power"] = line->power();
             obj["mpower"] = line->mpower();
             obj["current"] = line->current();
+            obj["currentCoefficient"] = line->currentCoefficient();
             obj["voltage"] = line->voltage();
             obj["tolerance"] = line->tolerance();
             obj["mode"] = line->mode();
@@ -204,6 +205,13 @@ public:
         QJsonDocument doc = QJsonDocument::fromJson(data);
         if (!doc.isArray())
             return false;
+        for (const QJsonValue &value : doc.array()) {
+            const QJsonValue coefficient = value.toObject().value("currentCoefficient");
+            if (!coefficient.isUndefined()
+                && (!coefficient.isDouble() || !std::isfinite(coefficient.toDouble())
+                    || coefficient.toDouble() <= 0.0))
+                return false;
+        }
 
         beginResetModel();
         qDeleteAll(m_lines);
@@ -217,6 +225,7 @@ public:
             line->setDescription(obj["description"].toString());
             line->setPower(obj["power"].toDouble());
             line->setmPower(obj["mpower"].toDouble());
+            line->setCurrentCoefficient(obj.value("currentCoefficient").toDouble(1.0));
             line->setCurrent(obj["current"].toDouble());
             line->setVoltage(obj["voltage"].toDouble());
             line->setTolerance(obj["tolerance"].toDouble());

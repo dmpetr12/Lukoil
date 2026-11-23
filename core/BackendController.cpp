@@ -608,9 +608,7 @@ void BackendController::setupTesting()
                          if (!ln)
                              return;
 
-                         ln->setVoltage(U);
-                         ln->setCurrent(I);
-                         ln->setPower(P);
+                         ln->applyMeterSample(U, I, P);
 
                          emit stateChanged();
                      });

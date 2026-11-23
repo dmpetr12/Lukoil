@@ -23,6 +23,29 @@ private:
     }
 
 private slots:
+    void perLineCurrentCoefficientPersistsAndDoesNotAccumulate()
+    {
+        QTemporaryDir dir;
+        LinesModel lines;
+        addTestLines(lines, 2);
+        lines.line(0)->setCurrentCoefficient(2.0);
+        lines.line(0)->applyMeterSample(220, 0.5, 110);
+        lines.line(0)->applyMeterSample(220, 0.5, 110);
+        QCOMPARE(lines.line(0)->current(), 1.0);
+        QCOMPARE(lines.line(0)->power(), 220.0);
+        QCOMPARE(lines.line(0)->voltage(), 220.0);
+        lines.line(1)->applyMeterSample(220, 0.5, 110);
+        QCOMPARE(lines.line(1)->current(), 0.5);
+        const QString path = dir.filePath("lines.json");
+        QVERIFY(lines.saveToFile(path));
+        LinesModel loaded;
+        QVERIFY(loaded.loadFromFile(path));
+        QCOMPARE(loaded.line(0)->currentCoefficient(), 2.0);
+        QCOMPARE(loaded.line(0)->current(), 1.0);
+        QCOMPARE(loaded.line(0)->power(), 220.0);
+        QCOMPARE(loaded.line(1)->currentCoefficient(), 1.0);
+    }
+
     void allLinesWarmUpWithoutMeterConnection()
     {
         AppConfig config;

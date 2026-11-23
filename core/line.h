@@ -2,6 +2,7 @@
 #define LINE_H
 
 #include <QObject>
+#include <cmath>
 #include <QString>
 #include <QColor>
 #include <QDateTime>
@@ -86,6 +87,16 @@ public:
     double mpower() const { return m_mpower; }
     double power() const { return m_power; }
     double current() const { return m_current; }
+    double currentCoefficient() const { return m_currentCoefficient; }
+    void setCurrentCoefficient(double value) {
+        if (std::isfinite(value) && value > 0.0)
+            m_currentCoefficient = value;
+    }
+    void applyMeterSample(double voltage, double current, double power) {
+        setVoltage(voltage);
+        setCurrent(current * m_currentCoefficient);
+        setPower(power * m_currentCoefficient);
+    }
     double voltage() const { return m_voltage; }
     double tolerance() const { return m_tolerance; }
     Mode mode() const { return m_mode; }
@@ -209,6 +220,7 @@ private:
     double m_power;
     double m_mpower;
     double m_current;
+    double m_currentCoefficient = 1.0;
     double m_voltage;
     double m_tolerance;
     Mode m_mode;

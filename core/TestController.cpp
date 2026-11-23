@@ -529,9 +529,7 @@ void TestController::onTestMeterSample(quint64 sequence, double voltage, double 
     if (!line || !std::isfinite(voltage) || !std::isfinite(current) || !std::isfinite(power))
         return;
     m_allTestTimer->stop();
-    line->setVoltage(voltage);
-    line->setCurrent(current);
-    line->setPower(power);
+    line->applyMeterSample(voltage, current, power);
     handleAllLinesStep();
 }
 

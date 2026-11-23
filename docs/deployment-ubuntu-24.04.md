@@ -112,6 +112,19 @@ ls -l /dev/rs485_internal /dev/rs485_server
 
 ### OPC UA
 
+Для адаптера измерителя с серийным номером `5AAB008524` задайте имя `/dev/rs485_internal` (значение `serialPort` в конфиге проекта уже такое):
+
+```bash
+sudo tee /etc/udev/rules.d/99-lukoil-meter.rules >/dev/null <<'EOF'
+SUBSYSTEM=="tty", ATTRS{idVendor}=="1a86", ATTRS{idProduct}=="55d3", ATTRS{serial}=="5AAB008524", SYMLINK+="rs485_internal", GROUP="dialout", MODE="0660"
+EOF
+sudo udevadm control --reload-rules
+sudo udevadm trigger --subsystem-match=tty
+ls -l /dev/rs485_internal
+```
+
+Если ранее создавали правило в этом же файле с именем `rs485-meter`, команда заменит его. Переподключите адаптер, чтобы убрать старую ссылку. В runtime-конфиге задайте `"serialPort": "/dev/rs485_internal"` и перезапустите `lukoil-backend.service`.
+
 В обычной установке скрипт собирает проект с `PANEL_ENABLE_OPCUA_SERVER=OFF`: Windows-путь к исходникам open62541 из Qt на Ubuntu отсутствует. Для нового runtime он выключает и `opcUa.enabled` в конфиге. При обновлении существующий конфиг не изменяется; проверьте эту настройку самостоятельно.
 
 Если OPC UA нужен, заранее перенесите на Ubuntu каталог исходников Qt OPC UA с файлами `src/3rdparty/open62541/open62541.c` и `.h`, затем запускайте:
@@ -172,6 +185,64 @@ Backend запускается при загрузке Ubuntu, до входа �
 ~/Lukoil-runtime/start-hmi.sh
 ```
 
+### Демон backend: настройка и автозапуск
+
+Установщик уже создаёт и включает службу `lukoil-backend.service`. Вручную создавать второй демон не нужно. Для пользователя `peter` служба запускает `/home/peter/Lukoil-runtime/current/panel-backend` с рабочим каталогом `/home/peter/Lukoil-runtime`, поэтому читает настройки именно оттуда. Backend работает без открытого терминала и без входа в рабочий стол; при сбое systemd перезапускает его через 2 секунды.
+
+После успешной установки явно включить запуск при загрузке и запустить демон можно так:
+
+```bash
+sudo systemctl daemon-reload
+sudo systemctl enable --now lukoil-backend.service
+systemctl is-enabled lukoil-backend.service
+systemctl is-active lukoil-backend.service
+```
+
+Ожидаются `enabled` и `active`. Посмотреть фактическую конфигурацию службы:
+
+```bash
+systemctl cat lukoil-backend.service
+```
+
+Основные команды управления:
+
+```bash
+sudo systemctl stop lukoil-backend.service     # остановить сейчас
+sudo systemctl start lukoil-backend.service    # запустить сейчас
+sudo systemctl restart lukoil-backend.service # перечитать config.json через перезапуск
+journalctl -u lukoil-backend.service -b -f      # смотреть журнал; Ctrl+C закрывает просмотр
+```
+
+`stop` не отключает запуск при следующей загрузке. Для отключения и остановки используйте `sudo systemctl disable --now lukoil-backend.service`.
+
+### Автозапуск экрана HMI
+
+Установщик создаёт `~/.config/autostart/lukoil-hmi.desktop` и исполняемый `~/Lukoil-runtime/start-hmi.sh`. Они принадлежат пользователю, запустившему установку. Проверьте из сеанса пользователя `peter`:
+
+```bash
+cat ~/.config/autostart/lukoil-hmi.desktop
+ls -l ~/Lukoil-runtime/start-hmi.sh
+```
+
+В `.desktop` для этой панели должны быть `Exec=/home/peter/Lukoil-runtime/start-hmi.sh` и `X-GNOME-Autostart-enabled=true`. Скрипт ждёт готовности backend, затем открывает экран. Если файлов нет, установка не завершилась: проверьте её ошибку и повторите `cd ~/Lukoil && bash update_panel.sh`.
+
+Чтобы экран открывался после включения питания без ввода пароля:
+
+1. Откройте **Настройки Ubuntu → Система → Пользователи** (название раздела может быть «Пользователи»).
+2. Разблокируйте настройки и включите **Автоматический вход** для `peter`.
+3. Для выбора Xorg выйдите из сеанса, выберите `peter`, нажмите шестерёнку и выберите **Ubuntu on Xorg**, затем войдите.
+4. Перезагрузите панель командой `sudo reboot`.
+
+После загрузки демон должен работать, а экран — открыться в графическом сеансе `peter`. Для полноэкранного режима установите `"level": "INFO"` в разделе `logging` файла `~/Lukoil-runtime/config.json`. После смены уровня перезапустите backend и HMI; одной перезагрузкой панели можно перезапустить оба.
+
+Если демон работает, а экрана нет, выполните из терминала **рабочего стола панели**:
+
+```bash
+~/Lukoil-runtime/start-hmi.sh
+```
+
+При ручном запуске ошибки видны в терминале. Журнал запуска HMI установщиком находится в `~/Lukoil-runtime/logs/hmi.log`; запуск через `.desktop` отдельно в этот файл не перенаправляется.
+
 ## 7. Проверка
 
 ```bash
@@ -195,6 +266,23 @@ sudo systemctl restart lukoil-backend.service
 Веб-интерфейс доступен только при `webServer.enabled=true`: `http://IP_ПАНЕЛИ:8080`. При включённом UFW откройте нужный порт только для доверенной сети. Modbus TCP и OPC UA без настроенной защиты не следует публиковать в интернет.
 
 Служба получает `CAP_SYS_TIME` и `CAP_NET_BIND_SERVICE`: это нужно для настройки часов и порта Modbus TCP 502. Синхронизация с аппаратными часами через `hwclock` может потребовать отдельных прав на `/dev/rtc*`; её ошибка видна в журнале. Синхронизация времени Ubuntu по NTP может переустановить время после ручного изменения.
+
+### Коэффициенты шунтов отходящих линий
+
+В каждой записи рабочего `~/Lukoil-runtime/lines.json` параметр `currentCoefficient` умножает ток и мощность свежего замера перед отображением и оценкой теста. Напряжение не масштабируется. Значение должно быть положительным числом. Если поле отсутствует, используется `1.0`.
+
+Для первой линии с шунтом 10 А / 75 мВ, когда измеритель показывает вдвое меньше фактического тока, задайте `"currentCoefficient": 2.0` в первой записи массива. У остальных линий со штатными шунтами задайте `1.0`. Сохранённые номинальные мощности и прошлые результаты автоматически не пересчитываются.
+
+При обновлении установленного шкафа исходный `lines.json` из Git не заменяет рабочий файл. После установки новой версии остановите backend, сохраните копию рабочего файла и отредактируйте его:
+
+```bash
+sudo systemctl stop lukoil-backend.service
+cp ~/Lukoil-runtime/lines.json ~/Lukoil-runtime/backups/lines-before-current-coefficient-$(date +%Y%m%d-%H%M%S).json
+nano ~/Lukoil-runtime/lines.json
+python3 -m json.tool ~/Lukoil-runtime/lines.json >/dev/null && sudo systemctl start lukoil-backend.service
+```
+
+Затем выполните тест и сравните ток первой линии с независимым измерением.
 
 ## 8. Обновление и откат
 
